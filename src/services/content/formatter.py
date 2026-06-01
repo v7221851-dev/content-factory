@@ -4,11 +4,6 @@ from html import unescape
 
 from src.core.settings import settings
 
-DISCLAIMER = (
-    "ℹ️ Информация носит ознакомительный характер "
-    "и не заменяет консультацию врача."
-)
-
 
 def _clean_html(text: str) -> str:
     cleaned = re.sub(r"<[^>]+>", " ", text or "")
@@ -38,8 +33,6 @@ def format_post(title: str, summary: str | None, source_url: str) -> str:
             "",
             f"💜 MDSA — персональный помощник здоровья",
             f"👉 {settings.MDSA_APP_URL}",
-            "",
-            DISCLAIMER,
         ]
     )
     return "\n".join(parts)
