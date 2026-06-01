@@ -29,8 +29,10 @@ class Settings(BaseSettings):
 
     MDSA_APP_URL: str = "https://mdsa.tech"
     RSS_FETCH_INTERVAL_MINUTES: int = 0
-    # Длина превью статьи в посте (~12–15 строк в VK)
-    POST_PREVIEW_MAX_CHARS: int = 1800
+    # Превью тела статьи (~15 строк × ~55 символов). Жёсткий потолок — POST_MAX_TOTAL_CHARS.
+    POST_PREVIEW_MAX_CHARS: int = 900
+    # Полный пост (заголовок + текст + футер). Лимит подписи Telegram sendPhoto.
+    POST_MAX_TOTAL_CHARS: int = 1024
 
     # Очередь согласования и автопубликация
     DAILY_REVIEW_LIMIT: int = 5

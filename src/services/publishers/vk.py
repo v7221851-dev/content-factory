@@ -2,6 +2,7 @@ import httpx
 from loguru import logger
 
 from src.core.settings import get_settings
+from src.services.ingest.rss import USER_AGENT as RSS_USER_AGENT
 from src.services.publishers.base import PublishResult
 
 VK_API_VERSION = "5.199"
@@ -56,7 +57,7 @@ class VKPublisher:
         referer: str | None,
     ) -> tuple[bytes, str] | tuple[None, str]:
         headers = {
-            "User-Agent": USER_AGENT,
+            "User-Agent": RSS_USER_AGENT,
             "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         }
         if referer:
@@ -69,8 +70,17 @@ class VKPublisher:
                 follow_redirects=True,
             )
             image_response.raise_for_status()
-        except httpx.HTTPError as exc:
-            return None, f"скачивание: {exc}"
+        except httpx.HTTPError:
+            headers["User-Agent"] = USER_AGENT
+            try:
+                image_response = await client.get(
+                    image_url,
+                    headers=headers,
+                    follow_redirects=True,
+                )
+                image_response.raise_for_status()
+            except httpx.HTTPError as exc:
+                return None, f"скачивание: {exc}"
 
         content_type = image_response.headers.get("content-type", "").split(";")[0].strip()
         if content_type and not content_type.startswith("image/"):
@@ -209,6 +219,7 @@ class VKPublisher:
 
                 if attachments:
                     params["attachments"] = ",".join(attachments)
+                    logger.info("VK wall.post attachments: {}", params["attachments"])
 
                 response = await client.post(
                     "https://api.vk.com/method/wall.post",

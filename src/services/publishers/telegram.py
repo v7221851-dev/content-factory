@@ -1,7 +1,7 @@
 import httpx
 from loguru import logger
 
-from src.core.settings import settings
+from src.core.settings import get_settings
 from src.services.publishers.base import PublishResult
 
 TELEGRAM_CAPTION_MAX_CHARS = 1024
@@ -16,11 +16,12 @@ class TelegramPublisher:
     platform = "telegram"
 
     def is_configured(self) -> bool:
-        return bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHANNEL_ID)
+        s = get_settings()
+        return bool(s.TELEGRAM_BOT_TOKEN and s.TELEGRAM_CHANNEL_ID)
 
     def _chat_id(self) -> str:
         """Нормализует id канала: 100xxx… → -100xxx… (@username без изменений)."""
-        raw = (settings.TELEGRAM_CHANNEL_ID or "").strip()
+        raw = (get_settings().TELEGRAM_CHANNEL_ID or "").strip()
         if raw.startswith("@"):
             return raw
         if raw.isdigit() and raw.startswith("100"):
@@ -28,7 +29,7 @@ class TelegramPublisher:
         return raw
 
     def _api_url(self, method: str) -> str:
-        return f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/{method}"
+        return f"https://api.telegram.org/bot{get_settings().TELEGRAM_BOT_TOKEN}/{method}"
 
     def _prepare_message(self, text: str, link: str | None) -> str:
         message = text

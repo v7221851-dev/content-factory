@@ -326,6 +326,10 @@ def page_review() -> None:
                     disabled=True,
                     key=f"preview_{item['id']}",
                 )
+                st.caption(
+                    f"Длина: {len(preview['formatted_text'])} символов "
+                    f"(лимит {1024} для Telegram с фото)"
+                )
                 st.link_button("Открыть источник", preview["url"])
             except Exception as exc:
                 st.warning(str(exc))
