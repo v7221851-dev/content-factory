@@ -1,0 +1,8 @@
+# Optional: run FastAPI server locally (python src/main.py)
+-r requirements.txt
+fastapi>=0.115.0
+uvicorn>=0.32.0
+python-multipart>=0.0.17
+
+# Uncomment for PostgreSQL (Neon/Supabase):
+# asyncpg>=0.30.0

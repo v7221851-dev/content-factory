@@ -24,6 +24,7 @@ git push -u origin main
    - **Repository:** `ВАШ_USERNAME/content-factory`
    - **Branch:** `main`
    - **Main file path:** `streamlit_app.py`
+   - **Python version:** `3.11` (Advanced settings — обязательно, иначе Cloud может взять 3.13+)
 3. **Advanced settings → Secrets** — вставьте блок ниже (значения из локального `.env`):
 
 ```toml
@@ -65,7 +66,7 @@ URL будет вида: `https://content-factory-xxxxx.streamlit.app`
 | Вариант | Плюсы | Минусы |
 |---------|-------|--------|
 | **SQLite** (по умолчанию) | Просто | Данные **сбрасываются** при redeploy |
-| **PostgreSQL (Neon)** | Раскомментируйте `asyncpg` в `requirements.txt` перед deploy |
+| **PostgreSQL (Neon)** | Добавьте `asyncpg` в `requirements.txt` перед deploy |
 
 ### PostgreSQL через Neon (рекомендуется для prod)
 
@@ -77,7 +78,14 @@ URL будет вида: `https://content-factory-xxxxx.streamlit.app`
 DATABASE_URL = "postgresql+asyncpg://user:pass@host/dbname?ssl=require"
 ```
 
-4. Раскомментируйте `asyncpg==0.30.0` в `requirements.txt` и сделайте `git push`
+4. Добавьте строку `asyncpg>=0.30.0` в `requirements.txt` и сделайте `git push`
+
+## Если сборка падает (installer non-zero exit code)
+
+1. **Manage app → Logs** — найдите строку с `ERROR` / `Could not find` (это точная причина).
+2. Убедитесь, что в Advanced settings выбран **Python 3.11**.
+3. `requirements.txt` должен быть минимальным (без `fastapi`, `uvicorn`, `streamlit` — они не нужны для embedded-режима).
+4. После `git push` нажмите **Reboot app** или дождитесь автопересборки (1–3 мин).
 
 ## Безопасность
 
