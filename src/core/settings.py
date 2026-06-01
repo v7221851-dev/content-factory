@@ -53,3 +53,11 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def reload_settings() -> Settings:
+    """Перечитать настройки после Streamlit Secrets / смены env."""
+    global settings
+    get_settings.cache_clear()
+    settings = get_settings()
+    return settings
