@@ -65,7 +65,7 @@ URL будет вида: `https://content-factory-xxxxx.streamlit.app`
 | Вариант | Плюсы | Минусы |
 |---------|-------|--------|
 | **SQLite** (по умолчанию) | Просто | Данные **сбрасываются** при redeploy |
-| **PostgreSQL (Neon)** | Данные сохраняются | Нужна регистрация |
+| **PostgreSQL (Neon)** | Раскомментируйте `asyncpg` в `requirements.txt` перед deploy |
 
 ### PostgreSQL через Neon (рекомендуется для prod)
 
@@ -76,6 +76,8 @@ URL будет вида: `https://content-factory-xxxxx.streamlit.app`
 ```toml
 DATABASE_URL = "postgresql+asyncpg://user:pass@host/dbname?ssl=require"
 ```
+
+4. Раскомментируйте `asyncpg==0.30.0` в `requirements.txt` и сделайте `git push`
 
 ## Безопасность
 
