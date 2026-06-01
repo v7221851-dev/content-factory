@@ -84,7 +84,7 @@ DATABASE_URL = "postgresql+asyncpg://user:pass@host/dbname?ssl=require"
 
 1. **Manage app → Logs** — найдите строку с `ERROR` / `Could not find` (это точная причина).
 2. Убедитесь, что в Advanced settings выбран **Python 3.11**.
-3. `requirements.txt` должен быть минимальным (без `fastapi`, `uvicorn`, `streamlit` — они не нужны для embedded-режима).
+3. `requirements.txt` должен содержать `streamlit` (Cloud собирает venv только из этого файла).
 4. После `git push` нажмите **Reboot app** или дождитесь автопересборки (1–3 мин).
 
 ## Безопасность
