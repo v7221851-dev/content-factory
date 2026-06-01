@@ -26,13 +26,7 @@ DEFAULT_KEY = os.getenv("CONTENT_FACTORY_API_KEY", "change-me")
 
 
 def _apply_secrets_to_env() -> None:
-    """Streamlit Cloud: secrets.toml. Локально достаточно content-factory/.env."""
-    secrets_paths = [
-        ROOT / ".streamlit" / "secrets.toml",
-        Path.home() / ".streamlit" / "secrets.toml",
-    ]
-    if not any(p.is_file() for p in secrets_paths):
-        return
+    """Streamlit Cloud: secrets из dashboard. Локально: .streamlit/secrets.toml."""
     try:
         for key, value in st.secrets.items():
             if isinstance(value, (str, int, float, bool)):
@@ -40,9 +34,9 @@ def _apply_secrets_to_env() -> None:
     except Exception:
         pass
     try:
-        from src.core.settings import get_settings
+        from src.core.settings import reload_settings
 
-        get_settings.cache_clear()
+        reload_settings()
     except Exception:
         pass
 
@@ -406,6 +400,11 @@ def _publish_selected(
                         if r.get("post_url")
                     ]
                     st.write(f"#{item['article_id']} OK — {', '.join(links) or '—'}")
+                    for r in item.get("results", []):
+                        if r.get("warning"):
+                            st.warning(
+                                f"#{item['article_id']} {r.get('platform')}: {r['warning']}"
+                            )
                 else:
                     st.error(f"#{item['article_id']}: {item.get('error')}")
             if reject_remaining:

@@ -1,7 +1,7 @@
 import httpx
 from loguru import logger
 
-from src.core.settings import settings
+from src.core.settings import get_settings
 from src.services.publishers.base import PublishResult
 
 VK_API_VERSION = "5.199"
@@ -15,14 +15,15 @@ class VKPublisher:
     platform = "vk"
 
     def is_configured(self) -> bool:
-        return bool(settings.VK_GROUP_ID and settings.VK_ACCESS_TOKEN)
+        s = get_settings()
+        return bool(s.VK_GROUP_ID and s.VK_ACCESS_TOKEN)
 
     def _wall_access_token(self) -> str:
-        return settings.VK_ACCESS_TOKEN  # type: ignore[return-value]
+        return get_settings().VK_ACCESS_TOKEN  # type: ignore[return-value]
 
     def _photo_access_token(self) -> str | None:
         # photos.getWallUploadServer не работает с ключом сообщества
-        return settings.VK_USER_ACCESS_TOKEN
+        return get_settings().VK_USER_ACCESS_TOKEN
 
     async def _vk_api_get(
         self,
@@ -168,7 +169,7 @@ class VKPublisher:
                 error="VK не настроен: задайте VK_GROUP_ID и VK_ACCESS_TOKEN в .env",
             )
 
-        group_id = settings.VK_GROUP_ID.strip()
+        group_id = get_settings().VK_GROUP_ID.strip()
         owner_id = f"-{group_id.lstrip('-')}"
         warning: str | None = None
 
@@ -195,11 +196,15 @@ class VKPublisher:
                     else:
                         warning = (
                             f"Фото не прикреплено: {photo_error}. "
-                            "Проверьте права токена VK (photos, wall)."
+                            "Проверьте VK_USER_ACCESS_TOKEN (photos, wall, groups)."
                         )
                         logger.warning("{} — {}", image_url, photo_error)
 
-                if link and attachments:
+                # Ссылку в attachments не добавляем, если есть фото —
+                # VK часто показывает только превью ссылки. URL уже в тексте поста.
+                if link and attachments and not any(
+                    a.startswith("photo") for a in attachments
+                ):
                     attachments.append(link)
 
                 if attachments:
