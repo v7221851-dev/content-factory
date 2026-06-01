@@ -34,7 +34,7 @@ PYTHONPATH=. python3 scripts/run_admin.py  # :8501
 
 ## Workflow
 
-1. **Сбор новостей** — RSS (DoctorPiter, Vademecum)
+1. **Сбор новостей** — RSS (Vademecum, DoctorPiter, MedAboutMe, Элементы)
 2. **Подготовить очередь** — 5 статей на согласование
 3. **Согласование** — превью, публикация или отклонение
 4. Публикация в VK + Telegram

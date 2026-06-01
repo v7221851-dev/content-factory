@@ -175,11 +175,12 @@ async def _validate_feed_url(feed_url: str) -> None:
         raise ValueError("RSS-лента пуста или недоступна")
 
 
-async def ensure_default_sources(session: AsyncSession) -> None:
+async def ensure_default_sources(session: AsyncSession) -> int:
     """Создаёт встроенные источники, если их ещё нет. Не перезаписывает enabled."""
     result = await session.execute(select(ContentSource))
     existing = {source.name: source for source in result.scalars().all()}
 
+    added = 0
     for name, feed_url in DEFAULT_RSS_SOURCES:
         source = existing.get(name)
         if source is None:
@@ -190,8 +191,10 @@ async def ensure_default_sources(session: AsyncSession) -> None:
                     enabled=name not in DISABLED_SOURCE_NAMES,
                 )
             )
+            added += 1
             continue
         if source.feed_url != feed_url:
             source.feed_url = feed_url
 
     await session.commit()
+    return added

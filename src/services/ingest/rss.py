@@ -37,10 +37,13 @@ def _entry_summary(entry) -> str:
 # N+1 — общая наука, для MDSA обычно не подходит
 DISABLED_SOURCE_NAMES: frozenset[str] = frozenset({"N+1"})
 
-# Проверенные RSS-ленты (русский, здоровье / медицина)
+# Встроенные RSS (русский, здоровье / медицина). Новые имена добавляются при старте приложения.
+# Medvestnik / Remedium убраны: их публичные /rss URL отдают 404.
 DEFAULT_RSS_SOURCES: list[tuple[str, str]] = [
     ("Vademecum", "https://vademec.ru/rss/"),
     ("DoctorPiter", "https://doctorpiter.ru/rss/"),
+    ("MedAboutMe", "https://medaboutme.ru/rss/"),
+    ("Элементы", "https://elementy.ru/rss/news"),
     ("N+1", "https://nplus1.ru/rss"),
 ]
 

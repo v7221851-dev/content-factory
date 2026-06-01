@@ -288,6 +288,20 @@ class EmbeddedBackend:
 
         return _run(_inner())
 
+    def sync_default_sources(self) -> dict:
+        async def _inner() -> dict:
+            await _ensure_ready()
+            async with async_session() as session:
+                added = await ensure_default_sources(session)
+                items = await list_sources_svc(session)
+                return {
+                    "added": added,
+                    "total": len(items),
+                    "items": [self._source_dict(i) for i in items],
+                }
+
+        return _run(_inner())
+
     def create_source(
         self,
         name: str,

@@ -135,6 +135,21 @@ def page_ingest() -> None:
     client = get_client()
 
     st.subheader("RSS-источники")
+    st.caption(
+        "Встроенные: Vademecum, DoctorPiter, MedAboutMe, Элементы; N+1 выключен по умолчанию. "
+        "На Streamlit Cloud список сбрасывается при redeploy — нажмите «Добавить встроенные»."
+    )
+    if hasattr(client, "sync_default_sources") and st.button("↻ Добавить встроенные источники"):
+        try:
+            sync = client.sync_default_sources()
+            if sync.get("added"):
+                st.success(f"Добавлено источников: {sync['added']}")
+            else:
+                st.info("Все встроенные источники уже есть")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
     try:
         sources_data = client.list_sources()
         sources = sources_data.get("items", [])
@@ -422,7 +437,7 @@ def page_catalog() -> None:
     try:
         source_names += [s["name"] for s in client.list_sources().get("items", [])]
     except Exception:
-        source_names += ["DoctorPiter", "Vademecum"]
+        source_names += ["DoctorPiter", "Vademecum", "MedAboutMe", "Элементы"]
 
     col1, col2, col3 = st.columns(3)
     with col1:
