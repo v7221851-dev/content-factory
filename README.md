@@ -42,3 +42,4 @@ PYTHONPATH=. python3 scripts/run_admin.py  # :8501
 
 Документация: `http://127.0.0.1:8090/docs`  
 Заголовок: `X-API-Key`
+# content-factory
