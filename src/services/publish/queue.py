@@ -13,7 +13,10 @@ from src.core.datetime_utils import ensure_utc
 from src.models.entities import ArticleStatus, PublishPost, PublishStatus, RawArticle
 from src.services.content.formatter import format_post
 from src.services.publish.service import publish_text_to_platforms
-from src.services.workflow.review import get_article_or_none
+from src.services.workflow.review import (
+    get_article_or_none,
+    validate_article_for_queue,
+)
 
 
 @dataclass
@@ -40,6 +43,10 @@ def _now() -> datetime:
 
 def _interval() -> timedelta:
     return timedelta(minutes=settings.PUBLISH_INTERVAL_MINUTES)
+
+
+def _initial_delay() -> timedelta:
+    return timedelta(minutes=settings.PUBLISH_QUEUE_INITIAL_DELAY_MINUTES)
 
 
 def _platforms_str(platforms: list[str]) -> str:
@@ -70,12 +77,14 @@ async def _last_scheduled_slot(session: AsyncSession) -> datetime | None:
     )
 
 
-async def next_publish_slot(session: AsyncSession) -> datetime:
-    """Следующий слот с учётом интервала после последней публикации или расписания."""
-    if settings.PUBLISH_INTERVAL_MINUTES <= 0:
-        return _now()
-
+async def next_queue_slot(session: AsyncSession) -> datetime:
+    """Следующий слот очереди: не раньше now + PUBLISH_QUEUE_INITIAL_DELAY_MINUTES."""
     now = _now()
+    min_slot = now + _initial_delay()
+
+    if settings.PUBLISH_INTERVAL_MINUTES <= 0:
+        return min_slot
+
     last_pub = ensure_utc(await _last_publish_time(session))
     last_sched = ensure_utc(await _last_scheduled_slot(session))
 
@@ -84,10 +93,12 @@ async def next_publish_slot(session: AsyncSession) -> datetime:
         default=None,
     )
     if anchor is None:
-        return now
+        return min_slot
 
     candidate = anchor + _interval()
-    return candidate if candidate > now else now
+    if candidate <= now:
+        return max(now, min_slot)
+    return max(candidate, min_slot)
 
 
 async def publish_single_article(
@@ -95,6 +106,27 @@ async def publish_single_article(
     article: RawArticle,
     platforms: list[str],
 ) -> QueueItemResult:
+    if article.status == ArticleStatus.PUBLISHED:
+        return QueueItemResult(
+            article_id=article.id,
+            success=False,
+            error="уже опубликована",
+        )
+
+    if article.status == ArticleStatus.SCHEDULED:
+        from src.services.workflow.review import get_published_content_hashes
+
+        if article.content_hash in await get_published_content_hashes(session):
+            return QueueItemResult(
+                article_id=article.id,
+                success=False,
+                error="дубликат уже опубликованного материала",
+            )
+    else:
+        ok, reason = await validate_article_for_queue(session, article)
+        if not ok:
+            return QueueItemResult(article_id=article.id, success=False, error=reason)
+
     text = format_post(
         title=article.title,
         summary=article.summary,
@@ -126,7 +158,7 @@ async def schedule_or_publish_batch(
     article_ids: list[int],
     platforms: list[str],
 ) -> QueueBatchResult:
-    """Публикует сразу или ставит в очередь с интервалом PUBLISH_INTERVAL_MINUTES."""
+    """Ставит статьи в очередь публикации (первая — через initial delay, далее с интервалом)."""
     if settings.PUBLISH_INTERVAL_MINUTES <= 0:
         return await _publish_all_immediately(session, article_ids, platforms)
 
@@ -134,9 +166,7 @@ async def schedule_or_publish_batch(
     platform_str = _platforms_str(platforms)
     items: list[QueueItemResult] = []
     published = scheduled = failed = 0
-    now = _now()
-    interval = _interval()
-    next_slot = ensure_utc(await next_publish_slot(session)) or now
+    next_slot = ensure_utc(await next_queue_slot(session)) or _now()
 
     for article_id in sorted_ids:
         article = await get_article_or_none(session, article_id)
@@ -145,46 +175,27 @@ async def schedule_or_publish_batch(
             failed += 1
             continue
 
-        if article.status not in (
-            ArticleStatus.PENDING,
-            ArticleStatus.NEW,
-            ArticleStatus.READY,
-        ):
-            items.append(
-                QueueItemResult(
-                    article_id,
-                    False,
-                    error=f"status={article.status}",
-                )
-            )
+        ok, reason = await validate_article_for_queue(session, article)
+        if not ok:
+            items.append(QueueItemResult(article_id, False, error=reason))
             failed += 1
             continue
 
-        publish_at = ensure_utc(next_slot) or now
-
-        if publish_at <= now:
-            item = await publish_single_article(session, article, platforms)
-            items.append(item)
-            if item.success:
-                published += 1
-                next_slot = await next_publish_slot(session)
-            else:
-                failed += 1
-        else:
-            article.status = ArticleStatus.SCHEDULED
-            article.scheduled_publish_at = publish_at
-            article.scheduled_platforms = platform_str
-            await session.commit()
-            items.append(
-                QueueItemResult(
-                    article_id=article.id,
-                    success=True,
-                    published_now=False,
-                    scheduled_at=publish_at,
-                )
+        publish_at = ensure_utc(next_slot) or _now()
+        article.status = ArticleStatus.SCHEDULED
+        article.scheduled_publish_at = publish_at
+        article.scheduled_platforms = platform_str
+        await session.commit()
+        items.append(
+            QueueItemResult(
+                article_id=article.id,
+                success=True,
+                published_now=False,
+                scheduled_at=publish_at,
             )
-            scheduled += 1
-            next_slot = publish_at + interval
+        )
+        scheduled += 1
+        next_slot = publish_at + _interval()
 
     return QueueBatchResult(
         items=items,
@@ -209,14 +220,9 @@ async def _publish_all_immediately(
             failed += 1
             continue
 
-        if article.status not in (
-            ArticleStatus.PENDING,
-            ArticleStatus.NEW,
-            ArticleStatus.READY,
-        ):
-            items.append(
-                QueueItemResult(article_id, False, error=f"status={article.status}")
-            )
+        ok, reason = await validate_article_for_queue(session, article)
+        if not ok:
+            items.append(QueueItemResult(article_id, False, error=reason))
             failed += 1
             continue
 
@@ -247,6 +253,12 @@ async def publish_due_scheduled(session: AsyncSession) -> int:
     for article in result.scalars():
         due_at = ensure_utc(article.scheduled_publish_at)
         if due_at is None or due_at > now:
+            continue
+
+        if article.status == ArticleStatus.PUBLISHED:
+            article.scheduled_publish_at = None
+            article.scheduled_platforms = None
+            await session.commit()
             continue
 
         platforms = _parse_platforms(article.scheduled_platforms)

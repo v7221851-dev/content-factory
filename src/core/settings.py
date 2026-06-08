@@ -35,14 +35,16 @@ class Settings(BaseSettings):
     POST_MAX_TOTAL_CHARS: int = 1024
 
     # Очередь согласования и автопубликация
-    DAILY_REVIEW_LIMIT: int = 5
+    DAILY_REVIEW_LIMIT: int = 10
     DEFAULT_PUBLISH_PLATFORMS: str = "vk,telegram"
     DAILY_PREPARE_ENABLED: bool = True
     DAILY_PREPARE_HOUR: int = 8
     DAILY_PREPARE_MINUTE: int = 0
 
-    # Интервал между публикациями статей (минуты). 0 = без задержки.
+    # Интервал между публикациями в очереди (минуты). 0 = публикация сразу без очереди.
     PUBLISH_INTERVAL_MINUTES: int = 30
+    # Первая статья в очереди — не сразу, а через N минут (время проверить очередь).
+    PUBLISH_QUEUE_INITIAL_DELAY_MINUTES: int = 15
 
     @property
     def publish_platforms_list(self) -> list[str]:

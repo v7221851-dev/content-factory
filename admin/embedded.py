@@ -23,8 +23,11 @@ from src.services.publish.queue import schedule_or_publish_batch
 from src.services.publishers.registry import list_configured_platforms
 from src.services.workflow.review import (
     build_preview,
+    cancel_scheduled_articles,
     count_by_status,
     get_article_or_none,
+    get_published_content_hashes,
+    list_recently_published,
     prepare_daily_review,
     reject_all_pending,
     reject_articles,
@@ -74,6 +77,9 @@ class EmbeddedBackend:
                     "pending_count": by_status.get(ArticleStatus.PENDING, 0),
                     "daily_review_limit": settings.DAILY_REVIEW_LIMIT,
                     "publish_interval_minutes": settings.PUBLISH_INTERVAL_MINUTES,
+                    "publish_queue_initial_delay_minutes": (
+                        settings.PUBLISH_QUEUE_INITIAL_DELAY_MINUTES
+                    ),
                     "configured_platforms": list_configured_platforms(),
                 }
 
@@ -91,10 +97,15 @@ class EmbeddedBackend:
         async def _inner() -> dict:
             await _ensure_ready()
             async with async_session() as session:
+                order = (
+                    RawArticle.scheduled_publish_at.asc()
+                    if status == ArticleStatus.SCHEDULED
+                    else RawArticle.fetched_at.desc()
+                )
                 query = (
                     select(RawArticle)
                     .options(selectinload(RawArticle.source))
-                    .order_by(RawArticle.fetched_at.desc())
+                    .order_by(order)
                 )
                 count_query = select(func.count()).select_from(RawArticle)
 
@@ -116,6 +127,7 @@ class EmbeddedBackend:
                 total = await session.scalar(count_query) or 0
                 result = await session.execute(query.limit(limit).offset(offset))
                 articles = result.scalars().all()
+                published_hashes = await get_published_content_hashes(session)
                 return {
                     "items": [
                         {
@@ -132,6 +144,7 @@ class EmbeddedBackend:
                                 if a.scheduled_publish_at
                                 else None
                             ),
+                            "is_duplicate": a.content_hash in published_hashes,
                         }
                         for a in articles
                     ],
@@ -264,6 +277,47 @@ class EmbeddedBackend:
             async with async_session() as session:
                 count = await reject_all_pending(session)
                 return {"rejected": count, "results": []}
+
+        return _run(_inner())
+
+    def cancel_scheduled(self, article_ids: list[int]) -> dict:
+        async def _inner() -> dict:
+            await _ensure_ready()
+            async with async_session() as session:
+                results = await cancel_scheduled_articles(session, article_ids)
+                return {
+                    "cancelled": sum(1 for r in results if r.success),
+                    "results": [
+                        {
+                            "article_id": r.article_id,
+                            "success": r.success,
+                            "detail": r.detail,
+                        }
+                        for r in results
+                    ],
+                }
+
+        return _run(_inner())
+
+    def list_recent_published(self, *, days: int = 7, limit: int = 50) -> dict:
+        async def _inner() -> dict:
+            await _ensure_ready()
+            async with async_session() as session:
+                items = await list_recently_published(session, days=days, limit=limit)
+                return {
+                    "days": days,
+                    "items": [
+                        {
+                            "id": item.id,
+                            "title": item.title,
+                            "url": item.url,
+                            "source_name": item.source_name,
+                            "published_at": item.published_at.isoformat(),
+                            "content_hash": item.content_hash,
+                        }
+                        for item in items
+                    ],
+                }
 
         return _run(_inner())
 

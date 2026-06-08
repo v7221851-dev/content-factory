@@ -36,7 +36,8 @@ DATABASE_URL = "sqlite+aiosqlite:///./content_factory.db"
 MDSA_APP_URL = "https://mdsa.tech"
 POST_PREVIEW_MAX_CHARS = 900
 POST_MAX_TOTAL_CHARS = 1024
-DAILY_REVIEW_LIMIT = 5
+DAILY_REVIEW_LIMIT = 10
+PUBLISH_QUEUE_INITIAL_DELAY_MINUTES = 15
 DEFAULT_PUBLISH_PLATFORMS = "vk,telegram"
 DAILY_PREPARE_ENABLED = "true"
 DAILY_PREPARE_HOUR = 8
@@ -87,6 +88,27 @@ DATABASE_URL = "postgresql+asyncpg://user:pass@host/dbname?ssl=require"
 2. Убедитесь, что в Advanced settings выбран **Python 3.11**.
 3. `requirements.txt` должен содержать `streamlit` (Cloud собирает venv только из этого файла).
 4. После `git push` нажмите **Reboot app** или дождитесь автопересборки (1–3 мин).
+
+## VK: фото на Streamlit Cloud
+
+Загрузка фото в VK использует **VK_USER_ACCESS_TOKEN** (не ключ сообщества).
+
+Если в логах:
+
+```text
+access_token was given to another ip address
+```
+
+значит user token получен **на вашем компьютере**, а Cloud публикует **с другого IP** — VK блокирует загрузку фото. Текст поста при этом выходит, Telegram с фото работает.
+
+**Что делать:**
+
+1. [vk.com/apps?act=manage](https://vk.com/apps?act=manage) → ваше приложение → отключите **фиксацию IP** (если включена).
+2. Получите **новый** user token с правами `photos`, `wall`, `groups` (OAuth / «Сервисный ключ» без привязки к IP).
+3. Обновите `VK_USER_ACCESS_TOKEN` в Streamlit Secrets.
+4. Либо публикуйте в VK **локально** (`CONTENT_FACTORY_MODE=embedded python3 scripts/run_admin.py`) — token с Mac работает.
+
+Ключ сообщества (`VK_ACCESS_TOKEN`) для `photos.getWallUploadServer` обычно **не подходит** (ошибка 27).
 
 ## Безопасность
 

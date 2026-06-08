@@ -56,6 +56,7 @@ class ArticleOut(BaseModel):
     fetched_at: datetime
     source_name: Optional[str] = None
     scheduled_publish_at: Optional[datetime] = None
+    is_duplicate: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -81,7 +82,22 @@ class StatsOut(BaseModel):
     pending_count: int
     daily_review_limit: int
     publish_interval_minutes: int
+    publish_queue_initial_delay_minutes: int
     configured_platforms: list[str]
+
+
+class PublishedArticleOut(BaseModel):
+    id: int
+    title: str
+    url: str
+    source_name: Optional[str] = None
+    published_at: datetime
+    content_hash: str
+
+
+class RecentPublishedOut(BaseModel):
+    items: list[PublishedArticleOut]
+    days: int
 
 
 class ArticleIdsIn(BaseModel):

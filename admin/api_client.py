@@ -131,6 +131,20 @@ class ContentFactoryClient:
     def reject_all_pending(self) -> dict:
         return self._request("POST", "/v1/articles/reject-pending")
 
+    def cancel_scheduled(self, article_ids: list[int]) -> dict:
+        return self._request(
+            "POST",
+            "/v1/workflow/cancel-scheduled",
+            json={"article_ids": article_ids},
+        )
+
+    def list_recent_published(self, *, days: int = 7, limit: int = 50) -> dict:
+        return self._request(
+            "GET",
+            "/v1/workflow/recent-published",
+            params={"days": days, "limit": limit},
+        )
+
     def platforms(self) -> dict:
         return self._request("GET", "/v1/publish/platforms")
 

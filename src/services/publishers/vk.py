@@ -22,9 +22,29 @@ class VKPublisher:
     def _wall_access_token(self) -> str:
         return get_settings().VK_ACCESS_TOKEN  # type: ignore[return-value]
 
-    def _photo_access_token(self) -> str | None:
-        # photos.getWallUploadServer не работает с ключом сообщества
-        return get_settings().VK_USER_ACCESS_TOKEN
+    def _photo_access_tokens(self) -> list[tuple[str, str]]:
+        """User token first, then community (fallback; often error 27 on Cloud)."""
+        cfg = get_settings()
+        tokens: list[tuple[str, str]] = []
+        if cfg.VK_USER_ACCESS_TOKEN:
+            tokens.append(("user", cfg.VK_USER_ACCESS_TOKEN))
+        if cfg.VK_ACCESS_TOKEN:
+            tokens.append(("community", cfg.VK_ACCESS_TOKEN))
+        return tokens
+
+    @staticmethod
+    def _is_ip_token_error(message: str) -> bool:
+        lower = message.lower()
+        return "another ip address" in lower or "given to another ip" in lower
+
+    @staticmethod
+    def _ip_token_help() -> str:
+        return (
+            "VK_USER_ACCESS_TOKEN выдан для другого IP (локально), "
+            "а Streamlit Cloud шлёт запросы с серверов VK. "
+            "Получите новый user token без привязки к IP (настройки VK-приложения) "
+            "или публикуйте VK с фото локально."
+        )
 
     async def _vk_api_get(
         self,
@@ -93,30 +113,15 @@ class VKPublisher:
         mime = content_type if content_type.startswith("image/") else "image/jpeg"
         return image_response.content, mime
 
-    async def _upload_wall_photo(
+    async def _upload_wall_photo_with_token(
         self,
         client: httpx.AsyncClient,
-        image_url: str,
+        *,
+        image_data: bytes,
+        mime: str,
         group_id: str,
-        referer: str | None = None,
+        photo_token: str,
     ) -> tuple[str | None, str | None]:
-        image_data, mime_or_error = await self._download_image(
-            client,
-            image_url,
-            referer,
-        )
-        if image_data is None:
-            logger.warning("Не удалось скачать {}: {}", image_url, mime_or_error)
-            return None, mime_or_error
-
-        photo_token = self._photo_access_token()
-        if not photo_token:
-            return None, (
-                "нужен VK_USER_ACCESS_TOKEN (ключ пользователя-админа с photos, wall, groups). "
-                "Ключ сообщества не умеет загружать фото."
-            )
-
-        mime = mime_or_error
         upload_payload = await self._vk_api_get(
             client,
             "photos.getWallUploadServer",
@@ -128,7 +133,6 @@ class VKPublisher:
         )
         if "error" in upload_payload:
             error = upload_payload["error"].get("error_msg", str(upload_payload["error"]))
-            logger.error("VK getWallUploadServer: {}", error)
             return None, error
 
         upload_url = upload_payload["response"]["upload_url"]
@@ -140,7 +144,6 @@ class VKPublisher:
             upload_response.raise_for_status()
             upload_data = upload_response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            logger.error("VK photo upload: {}", exc)
             return None, str(exc)
 
         if not all(key in upload_data for key in ("server", "photo", "hash")):
@@ -160,11 +163,56 @@ class VKPublisher:
         )
         if "error" in save_payload:
             error = save_payload["error"].get("error_msg", str(save_payload["error"]))
-            logger.error("VK saveWallPhoto: {}", error)
             return None, error
 
         photo = save_payload["response"][0]
         return f"photo{photo['owner_id']}_{photo['id']}", None
+
+    async def _upload_wall_photo(
+        self,
+        client: httpx.AsyncClient,
+        image_url: str,
+        group_id: str,
+        referer: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        image_data, mime_or_error = await self._download_image(
+            client,
+            image_url,
+            referer,
+        )
+        if image_data is None:
+            logger.warning("Не удалось скачать {}: {}", image_url, mime_or_error)
+            return None, mime_or_error
+
+        tokens = self._photo_access_tokens()
+        if not tokens:
+            return None, (
+                "задайте VK_USER_ACCESS_TOKEN (photos, wall, groups) "
+                "или VK_ACCESS_TOKEN сообщества"
+            )
+
+        mime = mime_or_error
+        errors: list[str] = []
+        for label, photo_token in tokens:
+            attachment, error = await self._upload_wall_photo_with_token(
+                client,
+                image_data=image_data,
+                mime=mime,
+                group_id=group_id,
+                photo_token=photo_token,
+            )
+            if attachment:
+                if label == "community":
+                    logger.info("VK photo uploaded with community token")
+                return attachment, None
+            if error:
+                errors.append(f"{label}: {error}")
+                logger.warning("VK photo upload ({}) failed: {}", label, error)
+
+        combined = "; ".join(errors) if errors else "неизвестная ошибка"
+        if any(self._is_ip_token_error(e) for e in errors):
+            combined = f"{combined}. {self._ip_token_help()}"
+        return None, combined
 
     async def publish(
         self,
@@ -204,14 +252,9 @@ class VKPublisher:
                     if photo_attachment:
                         attachments.append(photo_attachment)
                     else:
-                        warning = (
-                            f"Фото не прикреплено: {photo_error}. "
-                            "Проверьте VK_USER_ACCESS_TOKEN (photos, wall, groups)."
-                        )
+                        warning = f"Фото не прикреплено: {photo_error}"
                         logger.warning("{} — {}", image_url, photo_error)
 
-                # Ссылку в attachments не добавляем, если есть фото —
-                # VK часто показывает только превью ссылки. URL уже в тексте поста.
                 if link and attachments and not any(
                     a.startswith("photo") for a in attachments
                 ):

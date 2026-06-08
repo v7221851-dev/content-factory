@@ -34,17 +34,60 @@ def _entry_summary(entry) -> str:
         return ""
     return max(candidates, key=len)
 
-# N+1 — общая наука, для MDSA обычно не подходит
-DISABLED_SOURCE_NAMES: frozenset[str] = frozenset({"N+1"})
+# Общая наука / смежные темы — выключены по умолчанию.
+DISABLED_SOURCE_NAMES: frozenset[str] = frozenset({
+    "N+1",
+    "Naked Science",
+    "ПостНаука",
+})
 
 # Встроенные RSS (русский, здоровье / медицина). Новые имена добавляются при старте приложения.
-# Medvestnik / Remedium убраны: их публичные /rss URL отдают 404.
+# Medvestnik / Remedium / Medportal / Pharmvestnik — публичного RSS нет или URL отдаёт 404.
 DEFAULT_RSS_SOURCES: list[tuple[str, str]] = [
+    # Медиа и порталы
     ("Vademecum", "https://vademec.ru/rss/"),
     ("DoctorPiter", "https://doctorpiter.ru/rss/"),
     ("MedAboutMe", "https://medaboutme.ru/rss/"),
+    ("Rosmed", "http://www.rosmed.ru/rss/rss.php"),
+    ("Медицина 2.0", "https://www.med2.ru/rss.php"),
     ("Элементы", "https://elementy.ru/rss/news"),
+    # Государственные
+    ("Минздрав РФ", "https://minzdrav.gov.ru/news.atom"),
+    ("Росздравнадзор", "https://roszdravnadzor.gov.ru/rss"),
+    ("Роспотребнадзор", "https://www.rospotrebnadzor.ru/region/rss/rss.php"),
+    # Наука (выключены)
     ("N+1", "https://nplus1.ru/rss"),
+    ("Naked Science", "https://naked-science.ru/feed"),
+    ("ПостНаука", "https://postnauka.ru/feed"),
+]
+
+# Справочник для ручного добавления (не подключаются автоматически).
+SUGGESTED_RSS_SOURCES: list[tuple[str, str, str]] = [
+    (
+        "СМИ",
+        "РИА Новости · Здоровье",
+        "https://ria.ru/export/rss2/health/index.xml",
+    ),
+    (
+        "СМИ",
+        "Lenta.ru · все новости",
+        "https://lenta.ru/rss",
+    ),
+    (
+        "Государственные",
+        "Правительство РФ",
+        "https://government.ru/rss/",
+    ),
+    (
+        "Государственные",
+        "ФФОМС",
+        "https://www.ffoms.gov.ru/rss/",
+    ),
+    (
+        "Государственные",
+        "ФМБА России",
+        "https://fmba.gov.ru/rss/",
+    ),
 ]
 
 USER_AGENT = (

@@ -110,10 +110,12 @@ def page_home() -> None:
     cols[3].metric("Опубликовано", by_status.get("published", 0))
     cols[4].metric("Отклонено", by_status.get("skipped", 0))
 
+    initial_delay = stats.get("publish_queue_initial_delay_minutes", 15)
     st.info(
-        f"Ежедневная очередь: **{stats.get('daily_review_limit', 5)}** статей. "
+        f"Ежедневная очередь: **{stats.get('daily_review_limit', 10)}** статей. "
         f"Платформы: **{', '.join(stats.get('configured_platforms', []))}**. "
-        f"Интервал между публикациями: **{stats.get('publish_interval_minutes', 30)} мин**."
+        f"Первая публикация через **{initial_delay} мин** после одобрения, "
+        f"далее интервал **{stats.get('publish_interval_minutes', 30)} мин**."
     )
     st.caption(
         "**На согласовании** — статьи ждут вашего решения (раздел «Согласование»). "
@@ -124,7 +126,7 @@ def page_home() -> None:
         """
 **Рабочий процесс**
 1. **Сбор новостей** — собрать RSS и накопить статьи.
-2. **Согласование** — подготовить очередь (5 шт.), прочитать, опубликовать или отклонить.
+2. **Согласование** — подготовить очередь (10 шт.), прочитать, добавить в очередь или отклонить.
 3. Автоматически: RSS по расписанию и подготовка очереди утром (если включено в `.env`).
         """
     )
@@ -136,9 +138,35 @@ def page_ingest() -> None:
 
     st.subheader("RSS-источники")
     st.caption(
-        "Встроенные: Vademecum, DoctorPiter, MedAboutMe, Элементы; N+1 выключен по умолчанию. "
+        "Встроенные: Vademecum, DoctorPiter, MedAboutMe, Rosmed, Медицина 2.0, Элементы, "
+        "Минздрав РФ, Росздравнадзор, Роспотребнадзор. "
+        "N+1, Naked Science, ПостНаука — выключены. "
         "На Streamlit Cloud список сбрасывается при redeploy — нажмите «Добавить встроенные»."
     )
+    with st.expander("Справочник популярных RSS (добавить вручную)", expanded=False):
+        st.markdown(
+            """
+**Государственные** (часть уже встроена):
+- [Минздрав РФ](https://minzdrav.gov.ru/news.atom) — официальные новости
+- [Росздравнадзор](https://roszdravnadzor.gov.ru/rss) — надзор в сфере здравоохранения
+- [Роспотребнадзор](https://www.rospotrebnadzor.ru/region/rss/rss.php) — санэпиднадзор, потребители
+- [Правительство РФ](https://government.ru/rss/) — общие новости (в т.ч. соцсфера)
+- [ФФОМС](https://www.ffoms.gov.ru/rss/) — обязательное медстрахование
+- [ФМБА России](https://fmba.gov.ru/rss/) — медицина для атомщиков и космонавтов
+
+**Медиа и порталы** (часть уже встроена):
+- [Vademecum](https://vademec.ru/rss/) — фарма и клиническая медицина
+- [DoctorPiter](https://doctorpiter.ru/rss/) — здоровье для широкой аудитории
+- [MedAboutMe](https://medaboutme.ru/rss/) — пациенты и врачи
+- [Rosmed](http://www.rosmed.ru/rss/rss.php) — новости медицины
+- [Медицина 2.0](https://www.med2.ru/rss.php) — медицинское сообщество
+- [РИА · Здоровье](https://ria.ru/export/rss2/health/index.xml) — рубрика СМИ
+- [Lenta.ru](https://lenta.ru/rss) — общая лента (есть материалы о здоровье)
+
+**Без публичного RSS** (только сайт / Telegram):
+Medportal, Pharmvestnik, Remedium, Medvestnik, АиФ Здоровье, KP.ru Здоровье
+            """
+        )
     if hasattr(client, "sync_default_sources") and st.button("↻ Добавить встроенные источники"):
         try:
             sync = client.sync_default_sources()
@@ -172,7 +200,8 @@ def page_ingest() -> None:
                         st.rerun()
                     except Exception as exc:
                         st.error(str(exc))
-                st.markdown(f"**{src['name']}**")
+                status_label = "" if src["enabled"] else " · **ВЫКЛ**"
+                st.markdown(f"**{src['name']}**{status_label}")
                 st.caption(f"Статей: {src.get('article_count', 0)}")
             with col2:
                 new_url = st.text_input(
@@ -194,7 +223,12 @@ def page_ingest() -> None:
                     except Exception as exc:
                         st.error(str(exc))
             with col4:
-                if st.button("Собрать", key=f"src_ing_{src['id']}"):
+                if st.button(
+                    "Собрать",
+                    key=f"src_ing_{src['id']}",
+                    disabled=not src["enabled"],
+                    help="Включите источник, чтобы собирать RSS",
+                ):
                     with st.spinner("..."):
                         try:
                             r = client.ingest_source(src["id"])
@@ -274,6 +308,15 @@ def page_review() -> None:
     st.header("Согласование")
     client = get_client()
 
+    try:
+        stats = client.stats()
+    except Exception:
+        stats = {}
+
+    initial_delay = stats.get("publish_queue_initial_delay_minutes", 15)
+    interval = stats.get("publish_interval_minutes", 30)
+    daily_limit = stats.get("daily_review_limit", 10)
+
     col1, col2 = st.columns([1, 2])
     with col1:
         if st.button("Подготовить очередь на сегодня"):
@@ -284,8 +327,71 @@ def page_review() -> None:
                     f"Уже на согласовании: {result['already_pending']}. "
                     f"Новых в базе: {result['available_new']}."
                 )
+                st.rerun()
             except Exception as exc:
                 st.error(str(exc))
+
+    st.subheader("Очередь публикации")
+    st.caption(
+        f"После одобрения все статьи попадают сюда. Первая выйдет через **{initial_delay} мин**, "
+        f"далее с интервалом **{interval} мин**. Проверьте очередь и уберите дубли до выхода."
+    )
+    queue_selected: set[int] = set()
+    try:
+        scheduled = client.list_articles(status="scheduled", limit=50)
+        queue_items = scheduled["items"]
+        if queue_items:
+            for item in queue_items:
+                when = item.get("scheduled_publish_at") or "—"
+                label = f"#{item['id']} · {item['title'][:70]} → {when[:16]} UTC"
+                checked = st.checkbox(label, key=f"queue_{item['id']}")
+                if checked:
+                    queue_selected.add(item["id"])
+            q1, q2 = st.columns(2)
+            with q1:
+                if st.button(
+                    "Убрать выбранные из очереди",
+                    disabled=not queue_selected,
+                ):
+                    try:
+                        result = client.cancel_scheduled(list(queue_selected))
+                        st.success(f"Убрано из очереди: {result.get('cancelled', 0)}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+            with q2:
+                if st.button("Убрать всю очередь", disabled=not queue_items):
+                    try:
+                        result = client.cancel_scheduled(
+                            [i["id"] for i in queue_items],
+                        )
+                        st.success(f"Убрано из очереди: {result.get('cancelled', 0)}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+        else:
+            st.caption("Очередь пуста.")
+    except Exception as exc:
+        st.warning(str(exc))
+
+    with st.expander("Уже публиковалось за последние 7 дней", expanded=False):
+        try:
+            recent = client.list_recent_published(days=7, limit=50)
+            if recent["items"]:
+                for item in recent["items"]:
+                    when = item.get("published_at", "")[:16]
+                    source = item.get("source_name") or "—"
+                    st.write(
+                        f"**{when}** · #{item['id']} · {item['title'][:80]} "
+                        f"({source})"
+                    )
+            else:
+                st.caption("За последние 7 дней публикаций не было.")
+        except Exception as exc:
+            st.warning(str(exc))
+
+    st.divider()
+    st.subheader("На согласовании")
 
     try:
         pending = client.list_articles(status="pending", limit=50)
@@ -295,20 +401,26 @@ def page_review() -> None:
 
     items = pending["items"]
     if not items:
-        st.info("Очередь пуста. Нажмите «Подготовить очередь» или соберите RSS.")
+        st.info(
+            f"Очередь согласования пуста (лимит {daily_limit} статей в день). "
+            "Нажмите «Подготовить очередь» или соберите RSS."
+        )
         return
 
     st.write(f"Статей на согласовании: **{len(items)}**")
     st.caption(
-        "Здесь статьи ждут вашего решения. После «Опубликовать» первая уйдёт сразу, "
-        "остальные попадут в «Запланированы» на главной (интервал 30 мин)."
+        "Статьи с пометкой «дубликат» похожи на уже опубликованные — "
+        "их лучше отклонить."
     )
 
     selected: set[int] = set()
     for item in items:
+        title = item["title"]
+        if item.get("is_duplicate"):
+            title = f"⚠️ ДУБЛИКАТ · {title}"
         checked = st.checkbox(
-            f"#{item['id']} · {item['title']}",
-            value=True,
+            f"#{item['id']} · {title}",
+            value=not item.get("is_duplicate"),
             key=f"sel_{item['id']}",
         )
         if checked:
@@ -336,38 +448,22 @@ def page_review() -> None:
         st.divider()
 
     st.divider()
-    st.subheader("Запланированные публикации")
-    try:
-        scheduled = client.list_articles(status="scheduled", limit=20)
-        if scheduled["items"]:
-            for item in scheduled["items"]:
-                when = item.get("scheduled_publish_at") or "—"
-                st.write(f"#{item['id']} · {item['title'][:80]} → **{when[:16]}** UTC")
-        else:
-            st.caption(
-                "Нет запланированных публикаций. Появятся после «Опубликовать выбранные» "
-                "(кроме первой — она выходит сразу)."
-            )
-    except Exception as exc:
-        st.warning(str(exc))
-
-    st.divider()
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        if st.button("Опубликовать выбранные", type="primary", disabled=not selected):
+        if st.button("В очередь (выбранные)", type="primary", disabled=not selected):
             _publish_selected(client, list(selected), reject_remaining=False)
 
     with c2:
-        if st.button("Опубликовать все", disabled=not items):
+        if st.button("В очередь (все)", disabled=not items):
             _publish_selected(
                 client,
-                [i["id"] for i in items],
+                [i["id"] for i in items if not i.get("is_duplicate")],
                 reject_remaining=False,
             )
 
     with c3:
-        if st.button("Опубликовать выбранные + отклонить остальные", disabled=not selected):
+        if st.button("В очередь + отклонить остальные", disabled=not selected):
             _publish_selected(client, list(selected), reject_remaining=True)
 
     with c4:
@@ -395,22 +491,22 @@ def _publish_selected(
     *,
     reject_remaining: bool,
 ) -> None:
-    with st.spinner("Публикация..."):
+    with st.spinner("Добавление в очередь..."):
         try:
             result = client.publish_batch(
                 article_ids,
                 reject_remaining=reject_remaining,
             )
             st.success(
-                f"Сразу: {result['published']}, "
-                f"в очереди: {result.get('scheduled', 0)}, "
+                f"В очереди: {result.get('scheduled', 0)}, "
+                f"сразу опубликовано: {result['published']}, "
                 f"ошибок: {result['failed']}"
             )
             for item in result.get("items", []):
                 if item.get("scheduled_at"):
                     st.info(
-                        f"#{item['article_id']} запланирована на "
-                        f"{item['scheduled_at'][:16]}"
+                        f"#{item['article_id']} → "
+                        f"{item['scheduled_at'][:16]} UTC"
                     )
                 elif item["success"]:
                     links = [
@@ -438,10 +534,26 @@ def page_catalog() -> None:
     client = get_client()
 
     source_names = [""]
+    source_labels: dict[str, str] = {"": "Все"}
     try:
-        source_names += [s["name"] for s in client.list_sources().get("items", [])]
+        for s in client.list_sources().get("items", []):
+            source_names.append(s["name"])
+            label = s["name"]
+            if not s.get("enabled"):
+                label += " (выкл.)"
+            source_labels[s["name"]] = label
     except Exception:
-        source_names += ["DoctorPiter", "Vademecum", "MedAboutMe", "Элементы"]
+        source_names += [
+            "DoctorPiter",
+            "Vademecum",
+            "MedAboutMe",
+            "Rosmed",
+            "Медицина 2.0",
+            "Минздрав РФ",
+            "Росздравнадзор",
+            "Роспотребнадзор",
+            "Элементы",
+        ]
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -454,7 +566,7 @@ def page_catalog() -> None:
         source = st.selectbox(
             "Источник",
             source_names,
-            format_func=lambda x: x or "Все",
+            format_func=lambda x: source_labels.get(x, x or "Все"),
         )
     with col3:
         search = st.text_input("Поиск по заголовку")

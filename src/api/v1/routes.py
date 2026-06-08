@@ -20,9 +20,11 @@ from src.api.dto import (
     PlatformPublishResult,
     PlatformsOut,
     PrepareReviewOut,
+    PublishedArticleOut,
     PublishArticleIn,
     PublishOut,
     PublishTextIn,
+    RecentPublishedOut,
     SourceIngestOut,
     StatsOut,
 )
@@ -37,8 +39,11 @@ from src.services.publish.service import publish_text_to_platforms
 from src.services.publishers.registry import list_configured_platforms
 from src.services.workflow.review import (
     build_preview,
+    cancel_scheduled_articles,
     count_by_status,
     get_article_or_none,
+    get_published_content_hashes,
+    list_recently_published,
     prepare_daily_review,
     reject_all_pending,
     reject_articles,
@@ -103,10 +108,15 @@ async def list_articles(
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ) -> ArticleListOut:
+    order = (
+        RawArticle.scheduled_publish_at.asc()
+        if status_filter == ArticleStatus.SCHEDULED
+        else RawArticle.fetched_at.desc()
+    )
     query = (
         select(RawArticle)
         .options(selectinload(RawArticle.source))
-        .order_by(RawArticle.fetched_at.desc())
+        .order_by(order)
     )
     count_query = select(func.count()).select_from(RawArticle)
 
@@ -129,6 +139,8 @@ async def list_articles(
     result = await session.execute(query.limit(limit).offset(offset))
     articles = result.scalars().all()
 
+    published_hashes = await get_published_content_hashes(session)
+
     items = [
         ArticleOut(
             id=a.id,
@@ -140,6 +152,7 @@ async def list_articles(
             fetched_at=a.fetched_at,
             source_name=a.source.name if a.source else None,
             scheduled_publish_at=a.scheduled_publish_at,
+            is_duplicate=a.content_hash in published_hashes,
         )
         for a in articles
     ]
@@ -159,6 +172,7 @@ async def article_stats(session: AsyncSession = Depends(get_session)) -> StatsOu
         pending_count=by_status.get(ArticleStatus.PENDING, 0),
         daily_review_limit=settings.DAILY_REVIEW_LIMIT,
         publish_interval_minutes=settings.PUBLISH_INTERVAL_MINUTES,
+        publish_queue_initial_delay_minutes=settings.PUBLISH_QUEUE_INITIAL_DELAY_MINUTES,
         configured_platforms=list_configured_platforms(),
     )
 
@@ -238,6 +252,55 @@ async def prepare_review(
         selected=result.selected,
         already_pending=result.already_pending,
         available_new=result.available_new,
+    )
+
+
+@workflow_router.post(
+    "/cancel-scheduled",
+    response_model=BatchRejectOut,
+    dependencies=[Depends(verify_api_key)],
+    summary="Убрать статьи из очереди публикации",
+)
+async def cancel_scheduled(
+    body: ArticleIdsIn,
+    session: AsyncSession = Depends(get_session),
+) -> BatchRejectOut:
+    results = await cancel_scheduled_articles(session, body.article_ids)
+    cancelled = sum(1 for r in results if r.success)
+    return BatchRejectOut(
+        rejected=cancelled,
+        results=[
+            {"article_id": r.article_id, "success": r.success, "detail": r.detail}
+            for r in results
+        ],
+    )
+
+
+@workflow_router.get(
+    "/recent-published",
+    response_model=RecentPublishedOut,
+    dependencies=[Depends(verify_api_key)],
+    summary="Недавно опубликованные статьи",
+)
+async def recent_published(
+    days: int = Query(7, ge=1, le=30),
+    limit: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+) -> RecentPublishedOut:
+    items = await list_recently_published(session, days=days, limit=limit)
+    return RecentPublishedOut(
+        days=days,
+        items=[
+            PublishedArticleOut(
+                id=item.id,
+                title=item.title,
+                url=item.url,
+                source_name=item.source_name,
+                published_at=item.published_at,
+                content_hash=item.content_hash,
+            )
+            for item in items
+        ],
     )
 
 
